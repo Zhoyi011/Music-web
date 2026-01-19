@@ -398,43 +398,32 @@ class MusicPlayer {
         console.log(`尝试加载歌词文件: ${filename}`);
     }
     
-    loadSample() {
-        // 使用示例音频（在实际部署中，需要将示例文件放在uploads文件夹）
-        // 这里使用一个在线示例音频
-        this.audio.src = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
-        
-        // 加载示例歌词
-        const sampleLyrics = `[00:00.00] 网页音乐播放器示例
-[00:05.00] 请上传您的音乐和歌词文件
-[00:15.00] 或者点击"加载示例"按钮
-[00:25.00] 体验完整的播放器功能
-[00:35.00] 支持歌词高亮和音频可视化
-[00:45.00] 进度条、音量、播放速度控制
-[01:00.00] 欢迎使用网页音乐播放器
-[01:10.00] 享受音乐带来的美好时光
-[01:20.00] 部署到Vercel完全静态网站
-[01:30.00] 感谢使用本播放器
-[01:40.00] 祝你有个愉快的音乐体验`;
-        
-        const lyrics = this.parseLRC(sampleLyrics);
+loadSample() {
+    // 使用你上传的文件
+    this.audio.src = 'uploads/White_Night.mp3';
+    
+    // 加载对应的LRC文件
+    this.loadLyricsFromURL('uploads/White_Night.lrc');
+    
+    // 更新显示
+    document.getElementById('title').textContent = '你的歌曲名称';
+    document.getElementById('artist').textContent = '你的歌手';
+    document.getElementById('album').textContent = '你的专辑';
+}
+
+// 添加这个方法到MusicPlayer类中
+async loadLyricsFromURL(url) {
+    try {
+        const response = await fetch(url);
+        const lrcText = await response.text();
+        const lyrics = this.parseLRC(lrcText);
         this.displayLyrics(lyrics);
         
-        // 更新文件显示
-        this.musicFileName.textContent = '示例音乐.mp3';
-        this.lyricsFileName.textContent = '示例歌词.lrc';
-        
-        // 更新歌曲信息
-        document.getElementById('title').textContent = '示例音乐';
-        document.getElementById('artist').textContent = '网页播放器';
-        document.getElementById('album').textContent = '演示专辑';
-    }
-    
-    prevSong() {
-        alert('上一曲功能需要更多歌曲资源，请上传您的音乐文件。');
-    }
-    
-    nextSong() {
-        alert('下一曲功能需要更多歌曲资源，请上传您的音乐文件。');
+        // 更新文件名显示
+        this.lyricsFileName.textContent = url.split('/').pop();
+    } catch (error) {
+        console.error('加载歌词失败:', error);
+        this.lyricsDisplay.innerHTML = '<div class="no-lyrics">歌词加载失败</div>';
     }
 }
 
