@@ -38,6 +38,17 @@ class MusicPlayer {
         this.lyricsFileName = document.getElementById('lyrics-file-name');
         this.loadSampleBtn = document.getElementById('load-sample');
         
+        // 播放列表
+        this.playlist = [
+            {
+                title: 'White Night',
+                artist: '白夜',
+                mp3: 'uploads/White_Night.mp3',
+                lrc: 'uploads/White_Night.lrc'
+            }
+        ];
+        this.currentTrackIndex = 0;
+        
         // 初始化
         this.init();
     }
@@ -50,8 +61,8 @@ class MusicPlayer {
         // 绑定事件
         this.bindEvents();
         
-        // 加载示例
-        this.loadSample();
+        // 自动加载第一首歌
+        this.loadTrack(0);
     }
     
     setCanvasSize() {
@@ -83,17 +94,82 @@ class MusicPlayer {
         // 文件上传
         this.musicFileInput.addEventListener('change', (e) => this.loadMusicFile(e));
         this.lyricsFileInput.addEventListener('change', (e) => this.loadLyricsFile(e));
-        this.loadSampleBtn.addEventListener('click', () => this.loadSample());
+        this.loadSampleBtn.addEventListener('click', () => this.loadDefaultTrack());
         
-        // 切歌按钮（示例功能）
-        this.prevBtn.addEventListener('click', () => this.prevSong());
-        this.nextBtn.addEventListener('click', () => this.nextSong());
+        // 切歌按钮
+        this.prevBtn.addEventListener('click', () => this.prevTrack());
+        this.nextBtn.addEventListener('click', () => this.nextTrack());
+        
+        // 音频加载完成时更新信息
+        this.audio.addEventListener('loadeddata', () => {
+            this.updateDuration();
+        });
+    }
+    
+    loadTrack(index) {
+        const track = this.playlist[index];
+        if (!track) return;
+        
+        this.currentTrackIndex = index;
+        
+        // 加载音频
+        this.audio.src = track.mp3;
+        
+        // 更新歌曲信息
+        document.getElementById('title').textContent = track.title;
+        document.getElementById('artist').textContent = track.artist;
+        document.getElementById('album').textContent = '';
+        
+        // 加载歌词
+        this.loadLyricsFromURL(track.lrc);
+        
+        // 更新文件显示
+        this.musicFileName.textContent = track.mp3.split('/').pop();
+        this.lyricsFileName.textContent = track.lrc.split('/').pop();
+        
+        // 如果正在播放，继续播放新歌曲
+        if (!this.audio.paused) {
+            this.audio.play().catch(e => console.log('播放失败:', e));
+        }
+    }
+    
+    async loadLyricsFromURL(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const lrcText = await response.text();
+            const lyrics = this.parseLRC(lrcText);
+            this.displayLyrics(lyrics);
+        } catch (error) {
+            console.error('加载歌词失败:', error);
+            this.displayErrorLyrics();
+        }
+    }
+    
+    displayErrorLyrics() {
+        this.lyricsDisplay.innerHTML = `
+            <div class="no-lyrics">
+                <p>歌词加载失败</p>
+                <p>请检查 White_Night.lrc 文件是否存在</p>
+                <p>或通过"选择歌词文件"按钮上传</p>
+            </div>
+        `;
+    }
+    
+    loadDefaultTrack() {
+        this.loadTrack(0);
     }
     
     togglePlay() {
         if (this.audio.paused) {
-            this.audio.play();
-            this.initVisualizer();
+            this.audio.play().then(() => {
+                this.initVisualizer();
+            }).catch(e => {
+                console.error('播放失败:', e);
+                alert('播放失败，请检查音频文件或点击"加载示例"按钮');
+            });
         } else {
             this.audio.pause();
             this.stopVisualizer();
@@ -124,7 +200,7 @@ class MusicPlayer {
         const currentTime = this.audio.currentTime;
         const duration = this.audio.duration;
         
-        if (duration) {
+        if (duration && !isNaN(duration)) {
             const percent = (currentTime / duration) * 100;
             this.progress.style.width = `${percent}%`;
             this.progressThumb.style.left = `${percent}%`;
@@ -135,7 +211,7 @@ class MusicPlayer {
     
     updateDuration() {
         const duration = this.audio.duration;
-        if (duration) {
+        if (duration && !isNaN(duration)) {
             this.durationEl.textContent = this.formatTime(duration);
         }
     }
@@ -173,6 +249,8 @@ class MusicPlayer {
     }
     
     formatTime(seconds) {
+        if (isNaN(seconds)) return '0:00';
+        
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
@@ -182,24 +260,31 @@ class MusicPlayer {
     parseLRC(lrcText) {
         const lines = lrcText.split('\n');
         const lyrics = [];
-        const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})?\]/g;
         
         lines.forEach(line => {
-            const matches = [...line.matchAll(timeRegex)];
-            const text = line.replace(timeRegex, '').trim();
+            // 匹配时间标签，支持 [mm:ss.xx] 或 [mm:ss:xx] 格式
+            const timeMatches = line.match(/\[(\d{2}):(\d{2})(?:[\.:](\d{2,3}))?\]/g);
             
-            if (text && matches.length > 0) {
-                matches.forEach(match => {
-                    const minutes = parseInt(match[1]);
-                    const seconds = parseInt(match[2]);
-                    const milliseconds = match[3] ? parseInt(match[3]) / (match[3].length === 2 ? 100 : 1000) : 0;
-                    const time = minutes * 60 + seconds + milliseconds;
-                    
-                    lyrics.push({
-                        time: time,
-                        text: text
+            if (timeMatches && timeMatches.length > 0) {
+                const text = line.replace(/\[.*?\]/g, '').trim();
+                
+                if (text) {
+                    timeMatches.forEach(timeMatch => {
+                        const match = timeMatch.match(/\[(\d{2}):(\d{2})(?:[\.:](\d{2,3}))?\]/);
+                        if (match) {
+                            const minutes = parseInt(match[1]);
+                            const seconds = parseInt(match[2]);
+                            const milliseconds = match[3] ? 
+                                parseInt(match[3]) / (match[3].length === 2 ? 100 : 1000) : 0;
+                            const time = minutes * 60 + seconds + milliseconds;
+                            
+                            lyrics.push({
+                                time: time,
+                                text: text
+                            });
+                        }
                     });
-                });
+                }
             }
         });
         
@@ -213,7 +298,7 @@ class MusicPlayer {
         this.lyricsDisplay.innerHTML = '';
         
         if (lyrics.length === 0) {
-            this.lyricsDisplay.innerHTML = '<div class="no-lyrics">暂无歌词</div>';
+            this.lyricsDisplay.innerHTML = '<div class="no-lyrics">歌词为空或格式不正确</div>';
             return;
         }
         
@@ -229,6 +314,8 @@ class MusicPlayer {
     }
     
     highlightLyrics() {
+        if (this.lyrics.length === 0) return;
+        
         const currentTime = this.audio.currentTime;
         
         // 找到当前应该高亮的歌词
@@ -279,6 +366,10 @@ class MusicPlayer {
             this.dataArray = new Uint8Array(bufferLength);
         }
         
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+        
         this.drawVisualizer();
     }
     
@@ -310,9 +401,12 @@ class MusicPlayer {
             const barHeight = (amplitude / 255) * height * 0.8;
             
             // 创建渐变
+            const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim() || '#6c5ce7';
+            const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#fd79a8';
+            
             const gradient = this.canvasCtx.createLinearGradient(0, height, 0, height - barHeight);
-            gradient.addColorStop(0, varGetComputedStyle('--primary-color'));
-            gradient.addColorStop(1, varGetComputedStyle('--accent-color'));
+            gradient.addColorStop(0, primaryColor);
+            gradient.addColorStop(1, accentColor);
             
             this.canvasCtx.fillStyle = gradient;
             
@@ -360,7 +454,7 @@ class MusicPlayer {
         this.canvasCtx.stroke();
     }
     
-    // 文件处理
+    // 文件上传处理
     loadMusicFile(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -371,11 +465,17 @@ class MusicPlayer {
         this.audio.src = url;
         
         // 更新歌曲信息
-        document.getElementById('title').textContent = file.name.replace('.mp3', '');
+        document.getElementById('title').textContent = file.name.replace(/\.[^/.]+$/, "");
+        document.getElementById('artist').textContent = '上传文件';
+        document.getElementById('album').textContent = '';
         
-        // 自动加载同名歌词文件
-        const lyricsFileName = file.name.replace('.mp3', '.lrc');
-        this.tryLoadLyricsFile(lyricsFileName);
+        // 重置歌词
+        this.lyrics = [];
+        this.lyricsDisplay.innerHTML = '<div class="no-lyrics">请上传对应的歌词文件</div>';
+        
+        // 尝试自动查找同名歌词文件
+        const lyricsFileName = file.name.replace(/\.[^/.]+$/, ".lrc");
+        console.log(`尝试加载歌词文件: ${lyricsFileName}`);
     }
     
     loadLyricsFile(event) {
@@ -389,50 +489,59 @@ class MusicPlayer {
             const lyrics = this.parseLRC(e.target.result);
             this.displayLyrics(lyrics);
         };
-        reader.readAsText(file);
+        reader.onerror = (e) => {
+            console.error('读取歌词文件失败:', e);
+            this.lyricsDisplay.innerHTML = '<div class="no-lyrics">读取歌词文件失败</div>';
+        };
+        reader.readAsText(file, 'UTF-8');
     }
     
-    tryLoadLyricsFile(filename) {
-        // 在真实项目中，这里应该从服务器请求歌词文件
-        // 此处仅作为示例，实际需要用户上传
-        console.log(`尝试加载歌词文件: ${filename}`);
+    prevTrack() {
+        let newIndex = this.currentTrackIndex - 1;
+        if (newIndex < 0) newIndex = this.playlist.length - 1;
+        this.loadTrack(newIndex);
     }
     
-loadSample() {
-    // 使用你上传的文件
-    this.audio.src = 'uploads/White_Night.mp3';
-    
-    // 加载对应的LRC文件
-    this.loadLyricsFromURL('uploads/White_Night.lrc');
-    
-    // 更新显示
-    document.getElementById('title').textContent = '你的歌曲名称';
-    document.getElementById('artist').textContent = '你的歌手';
-    document.getElementById('album').textContent = '你的专辑';
-}
-
-// 添加这个方法到MusicPlayer类中
-async loadLyricsFromURL(url) {
-    try {
-        const response = await fetch(url);
-        const lrcText = await response.text();
-        const lyrics = this.parseLRC(lrcText);
-        this.displayLyrics(lyrics);
-        
-        // 更新文件名显示
-        this.lyricsFileName.textContent = url.split('/').pop();
-    } catch (error) {
-        console.error('加载歌词失败:', error);
-        this.lyricsDisplay.innerHTML = '<div class="no-lyrics">歌词加载失败</div>';
+    nextTrack() {
+        let newIndex = this.currentTrackIndex + 1;
+        if (newIndex >= this.playlist.length) newIndex = 0;
+        this.loadTrack(newIndex);
     }
-}
-
-// 辅助函数：获取CSS变量值
-function varGetComputedStyle(variable) {
-    return getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
 }
 
 // 初始化播放器
 document.addEventListener('DOMContentLoaded', () => {
     const player = new MusicPlayer();
+    
+    // 添加键盘快捷键支持
+    document.addEventListener('keydown', (e) => {
+        switch(e.code) {
+            case 'Space':
+                e.preventDefault();
+                player.togglePlay();
+                break;
+            case 'ArrowLeft':
+                if (e.ctrlKey) {
+                    player.audio.currentTime -= 10;
+                } else {
+                    player.audio.currentTime -= 5;
+                }
+                break;
+            case 'ArrowRight':
+                if (e.ctrlKey) {
+                    player.audio.currentTime += 10;
+                } else {
+                    player.audio.currentTime += 5;
+                }
+                break;
+            case 'ArrowUp':
+                player.volumeSlider.value = Math.min(100, parseInt(player.volumeSlider.value) + 10);
+                player.updateVolume();
+                break;
+            case 'ArrowDown':
+                player.volumeSlider.value = Math.max(0, parseInt(player.volumeSlider.value) - 10);
+                player.updateVolume();
+                break;
+        }
+    });
 });
