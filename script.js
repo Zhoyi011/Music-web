@@ -25,7 +25,7 @@ class MusicPlayer {
         this.isUserScrolling = false;
         this.scrollTimeout = null;
         
-        // 可视化相关（简化版，提高性能）
+        // 可视化相关
         this.canvas = document.getElementById('visualizer');
         this.canvasCtx = this.canvas.getContext('2d');
         this.audioContext = null;
@@ -41,26 +41,20 @@ class MusicPlayer {
         this.lyricsFileName = document.getElementById('lyrics-file-name');
         this.loadSampleBtn = document.getElementById('load-sample');
         
-        // 播放列表
-        this.playlist = [
-            {
-                title: 'White Night',
-                artist: '白夜',
-                mp3: 'uploads/White_Night.mp3',
-                lrc: 'uploads/White_Night.lrc'
-            }
-        ];
+        // 播放列表相关
+        this.playlist = [];
         this.currentTrackIndex = 0;
+        this.playlistElement = null;
         
         // 性能优化
         this.lastUpdateTime = 0;
-        this.updateInterval = 16; // ~60fps
+        this.updateInterval = 16;
         
         // 初始化
         this.init();
     }
     
-    init() {
+    async init() {
         // 设置画布尺寸
         this.setCanvasSize();
         const resizeObserver = new ResizeObserver(() => {
@@ -68,11 +62,160 @@ class MusicPlayer {
         });
         resizeObserver.observe(this.canvas);
         
+        // 创建播放列表元素
+        this.createPlaylistElement();
+        
         // 绑定事件
         this.bindEvents();
         
-        // 自动加载第一首歌
-        this.loadTrack(0);
+        // 扫描并加载播放列表
+        await this.scanAndLoadPlaylist();
+        
+        // 如果有歌曲，自动加载第一首
+        if (this.playlist.length > 0) {
+            this.loadTrack(0);
+        }
+    }
+    
+    createPlaylistElement() {
+        // 创建播放列表容器
+        const playlistContainer = document.createElement('div');
+        playlistContainer.className = 'playlist-container';
+        playlistContainer.innerHTML = `
+            <h3><i class="fas fa-list"></i> 播放列表</h3>
+            <div class="playlist-controls">
+                <button id="refresh-playlist" class="file-btn" title="刷新列表">
+                    <i class="fas fa-sync-alt"></i> 刷新列表
+                </button>
+                <div class="playlist-info">
+                    <span id="playlist-count">0 首歌曲</span>
+                </div>
+            </div>
+            <div class="playlist-display">
+                <div class="playlist-items" id="playlist-items"></div>
+            </div>
+        `;
+        
+        // 插入到歌词容器后面
+        const lyricsContainer = document.querySelector('.lyrics-container');
+        lyricsContainer.parentNode.insertBefore(playlistContainer, lyricsContainer.nextSibling);
+        
+        // 获取播放列表元素
+        this.playlistElement = document.getElementById('playlist-items');
+        
+        // 绑定刷新按钮事件
+        document.getElementById('refresh-playlist').addEventListener('click', () => {
+            this.scanAndLoadPlaylist();
+        });
+    }
+    
+    async scanAndLoadPlaylist() {
+        try {
+            // 模拟扫描uploads文件夹
+            // 在实际部署中，这里需要服务器支持列出文件
+            // 这里我们使用一个预设的歌曲列表，并模拟动态添加
+            this.playlist = [];
+            
+            // 尝试从服务器获取文件列表（需要服务器支持）
+            try {
+                const response = await fetch('uploads/');
+                if (response.ok) {
+                    const html = await response.text();
+                    // 解析HTML获取文件列表
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const links = doc.querySelectorAll('a');
+                    
+                    links.forEach(link => {
+                        const fileName = link.getAttribute('href');
+                        if (fileName && fileName.endsWith('.mp3')) {
+                            this.addToPlaylist(fileName);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.log('无法自动扫描文件夹，使用默认方法...');
+                // 使用默认方法：尝试加载已知文件
+                this.addToPlaylist('White_Night.mp3');
+            }
+            
+            // 更新播放列表显示
+            this.updatePlaylistDisplay();
+            
+        } catch (error) {
+            console.error('扫描播放列表失败:', error);
+            this.showToast('无法扫描歌曲列表，请手动上传文件');
+        }
+    }
+    
+    addToPlaylist(mp3FileName) {
+        // 从文件名提取歌曲名称（去除.mp3扩展名）
+        const songName = mp3FileName.replace('.mp3', '').replace(/_/g, ' ');
+        const lrcFileName = mp3FileName.replace('.mp3', '.lrc');
+        
+        this.playlist.push({
+            title: songName,
+            artist: '未知艺术家',
+            mp3: `uploads/${mp3FileName}`,
+            lrc: `uploads/${lrcFileName}`,
+            fileName: mp3FileName
+        });
+    }
+    
+    updatePlaylistDisplay() {
+        if (!this.playlistElement) return;
+        
+        this.playlistElement.innerHTML = '';
+        
+        if (this.playlist.length === 0) {
+            this.playlistElement.innerHTML = `
+                <div class="no-songs">
+                    <i class="fas fa-music"></i>
+                    <p>暂无歌曲</p>
+                    <p>请将MP3文件放入uploads文件夹</p>
+                </div>
+            `;
+            document.getElementById('playlist-count').textContent = '0 首歌曲';
+            return;
+        }
+        
+        this.playlist.forEach((track, index) => {
+            const songElement = document.createElement('div');
+            songElement.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
+            songElement.dataset.index = index;
+            
+            songElement.innerHTML = `
+                <div class="song-info">
+                    <div class="song-number">${index + 1}</div>
+                    <div class="song-details">
+                        <div class="song-title">${track.title}</div>
+                        <div class="song-artist">${track.artist}</div>
+                    </div>
+                </div>
+                <div class="song-controls">
+                    <button class="play-song-btn" title="播放">
+                        <i class="fas fa-play"></i>
+                    </button>
+                </div>
+            `;
+            
+            // 点击播放按钮
+            songElement.querySelector('.play-song-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.loadTrack(index);
+                this.audio.play();
+            });
+            
+            // 点击整行播放
+            songElement.addEventListener('click', () => {
+                this.loadTrack(index);
+                this.audio.play();
+            });
+            
+            this.playlistElement.appendChild(songElement);
+        });
+        
+        document.getElementById('playlist-count').textContent = `${this.playlist.length} 首歌曲`;
     }
     
     setCanvasSize() {
@@ -153,6 +296,14 @@ class MusicPlayer {
                     this.volumeSlider.value = Math.max(0, parseInt(this.volumeSlider.value) - 10);
                     this.updateVolume();
                     break;
+                case 'KeyL':
+                    e.preventDefault();
+                    this.nextTrack();
+                    break;
+                case 'KeyJ':
+                    e.preventDefault();
+                    this.prevTrack();
+                    break;
             }
         });
     }
@@ -169,60 +320,106 @@ class MusicPlayer {
         }, 2000);
     }
     
-    loadTrack(index) {
-        const track = this.playlist[index];
-        if (!track) return;
+    async loadTrack(index) {
+        if (index < 0 || index >= this.playlist.length) return;
         
         this.currentTrackIndex = index;
+        const track = this.playlist[index];
+        
+        // 显示加载状态
+        this.showLoadingState();
+        
+        // 更新音频源
         this.audio.src = track.mp3;
         
-        // 更新歌曲信息
+        // 更新歌曲信息（使用文件名作为标题）
         document.getElementById('title').textContent = track.title;
         document.getElementById('artist').textContent = track.artist;
         document.getElementById('album').textContent = '';
         
-        // 加载歌词
-        this.loadLyricsFromURL(track.lrc);
+        // 尝试加载歌词
+        await this.loadLyricsFromURL(track.lrc);
         
         // 更新文件显示
-        this.musicFileName.textContent = track.mp3.split('/').pop();
+        this.musicFileName.textContent = track.fileName;
         this.lyricsFileName.textContent = track.lrc.split('/').pop();
         
         // 重置状态
         this.isUserScrolling = false;
         this.currentLyricIndex = 0;
         this.previousLyricIndex = -1;
+        
+        // 更新播放列表高亮
+        this.updatePlaylistDisplay();
+        
+        // 隐藏加载状态
+        setTimeout(() => this.hideLoadingState(), 500);
     }
     
     async loadLyricsFromURL(url) {
         try {
             const response = await fetch(url);
-            if (!response.ok) throw new Error('歌词加载失败');
+            if (!response.ok) {
+                // 如果歌词文件不存在，显示空歌词
+                this.displayEmptyLyrics();
+                return;
+            }
+            
             const lrcText = await response.text();
             const lyrics = this.parseLRC(lrcText);
             this.displayLyrics(lyrics);
         } catch (error) {
-            console.error('加载歌词失败:', error);
-            this.displayErrorLyrics();
+            console.log('歌词文件不存在，显示空歌词');
+            this.displayEmptyLyrics();
         }
+    }
+    
+    displayEmptyLyrics() {
+        this.lyrics = [];
+        this.lyricsDisplay.innerHTML = `
+            <div class="no-lyrics">
+                <i class="fas fa-music"></i>
+                <p>暂无歌词</p>
+                <p>请上传对应的歌词文件</p>
+            </div>
+        `;
     }
     
     displayErrorLyrics() {
         this.lyricsDisplay.innerHTML = `
             <div class="no-lyrics">
+                <i class="fas fa-exclamation-triangle"></i>
                 <p>歌词加载失败</p>
-                <p>请检查歌词文件是否存在</p>
             </div>
         `;
         this.lyrics = [];
     }
     
     loadDefaultTrack() {
-        this.loadTrack(0);
+        if (this.playlist.length > 0) {
+            this.loadTrack(0);
+        }
+    }
+    
+    showLoadingState() {
+        this.playBtn.classList.add('loading');
+        this.progress.style.width = '0%';
+        this.progressThumb.style.left = '0%';
+    }
+    
+    hideLoadingState() {
+        this.playBtn.classList.remove('loading');
     }
     
     togglePlay() {
         if (this.audio.paused) {
+            if (!this.audio.src) {
+                if (this.playlist.length > 0) {
+                    this.loadTrack(0);
+                }
+                return;
+            }
+            
             this.audio.play().then(() => {
                 this.initVisualizer();
                 this.startLyricsUpdate();
@@ -412,12 +609,6 @@ class MusicPlayer {
             lyricElements[this.previousLyricIndex].classList.add('previous');
         }
         
-        // 设置下一句歌词（如果有）
-        const nextIndex = this.currentLyricIndex + 1;
-        if (nextIndex < lyricElements.length && lyricElements[nextIndex]) {
-            lyricElements[nextIndex].classList.add('next');
-        }
-        
         // 自动滚动到当前歌词
         if (!this.isUserScrolling && lyricElements[this.currentLyricIndex]) {
             this.smoothScrollToLyric(lyricElements[this.currentLyricIndex]);
@@ -450,7 +641,7 @@ class MusicPlayer {
         }
     }
     
-    // 音频可视化（简化版）
+    // 音频可视化
     initVisualizer() {
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -460,7 +651,7 @@ class MusicPlayer {
             this.source.connect(this.analyser);
             this.analyser.connect(this.audioContext.destination);
             
-            this.analyser.fftSize = 128; // 降低精度提高性能
+            this.analyser.fftSize = 128;
             const bufferLength = this.analyser.frequencyBinCount;
             this.dataArray = new Uint8Array(bufferLength);
         }
@@ -497,7 +688,7 @@ class MusicPlayer {
         this.canvasCtx.fillRect(0, 0, width, height);
         
         // 绘制简化的波形
-        const barWidth = width / 32; // 减少柱状图数量
+        const barWidth = width / 32;
         let x = 0;
         
         for (let i = 0; i < 32; i++) {
@@ -520,22 +711,42 @@ class MusicPlayer {
         const file = event.target.files[0];
         if (!file) return;
         
+        if (!file.name.endsWith('.mp3')) {
+            this.showToast('请选择MP3文件');
+            return;
+        }
+        
         this.musicFileName.textContent = file.name;
         const url = URL.createObjectURL(file);
         this.audio.src = url;
         
+        // 从文件名提取歌曲名称
+        const songName = file.name.replace('.mp3', '').replace(/_/g, ' ');
+        
         // 更新歌曲信息
-        document.getElementById('title').textContent = file.name.replace(/\.[^/.]+$/, "");
+        document.getElementById('title').textContent = songName;
         document.getElementById('artist').textContent = '上传文件';
         
-        // 重置歌词
-        this.lyrics = [];
-        this.lyricsDisplay.innerHTML = '<div class="no-lyrics">请上传对应的歌词文件</div>';
+        // 尝试加载同名歌词文件
+        const lrcFileName = file.name.replace('.mp3', '.lrc');
+        this.loadLyricsFromURL(`uploads/${lrcFileName}`);
+        
+        // 将歌曲添加到播放列表
+        this.addToPlaylist(file.name);
+        this.updatePlaylistDisplay();
+        
+        // 播放歌曲
+        this.audio.play().catch(console.error);
     }
     
     loadLyricsFile(event) {
         const file = event.target.files[0];
         if (!file) return;
+        
+        if (!file.name.endsWith('.lrc')) {
+            this.showToast('请选择LRC歌词文件');
+            return;
+        }
         
         this.lyricsFileName.textContent = file.name;
         
@@ -546,21 +757,66 @@ class MusicPlayer {
         };
         reader.onerror = (e) => {
             console.error('读取歌词文件失败:', e);
-            this.lyricsDisplay.innerHTML = '<div class="no-lyrics">读取歌词文件失败</div>';
+            this.showToast('读取歌词文件失败');
         };
         reader.readAsText(file, 'UTF-8');
     }
     
     prevTrack() {
+        if (this.playlist.length === 0) return;
+        
         let newIndex = this.currentTrackIndex - 1;
         if (newIndex < 0) newIndex = this.playlist.length - 1;
         this.loadTrack(newIndex);
+        
+        if (!this.audio.paused) {
+            this.audio.play();
+        }
     }
     
     nextTrack() {
+        if (this.playlist.length === 0) return;
+        
         let newIndex = this.currentTrackIndex + 1;
         if (newIndex >= this.playlist.length) newIndex = 0;
         this.loadTrack(newIndex);
+        
+        if (!this.audio.paused) {
+            this.audio.play();
+        }
+    }
+    
+    showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--dark-color);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            z-index: 1000;
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        `;
+        
+        document.body.appendChild(toast);
+        
+        requestAnimationFrame(() => {
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+            toast.style.opacity = '1';
+        });
+        
+        setTimeout(() => {
+            toast.style.transform = 'translateX(-50%) translateY(100px)';
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
 }
 
